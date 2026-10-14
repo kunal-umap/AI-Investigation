@@ -1,0 +1,6 @@
+{
+  "name": "AI Operations Investigator",
+  "description": "Enterprise-grade read-only production incident investigation platform with automated RCA, telemetry correlation, and human guardrails.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

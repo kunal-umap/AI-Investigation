@@ -1,0 +1,382 @@
+openapi: 3.0.3
+info:
+  title: AI Operations Investigator API
+  description: >
+    Stage 1 Enterprise-grade read-only production incident investigation platform.
+    This service strictly operates in read-only analysis mode and never mutates production environments.
+  version: 1.0.0
+  contact:
+    name: SRE & Platform Operations Team
+servers:
+  - url: http://localhost:8080
+    description: Local Development Server
+  - url: /
+    description: Current Environment
+tags:
+  - name: Incidents
+    description: Incident lifecycle and state management
+  - name: Timeline
+    description: Chronological audit and incident telemetry events
+  - name: Evidence
+    description: Non-destructive telemetry evidence references
+
+paths:
+  /api/v1/incidents:
+    post:
+      tags:
+        - Incidents
+      summary: Create or detect a new production incident
+      operationId: createIncident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIncidentRequest'
+      responses:
+        '201':
+          description: Incident created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+        '400':
+          $ref: '#/components/responses/ProblemDetails400'
+
+    get:
+      tags:
+        - Incidents
+      summary: Retrieve paginated list of incidents
+      operationId: getIncidents
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/IncidentStatus'
+        - name: severity
+          in: query
+          schema:
+            $ref: '#/components/schemas/IncidentSeverity'
+        - name: serviceName
+          in: query
+          schema:
+            type: string
+        - name: environment
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Paginated incident collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentPageResponse'
+
+  /api/v1/incidents/{id}:
+    get:
+      tags:
+        - Incidents
+      summary: Get incident details by unique identifier
+      operationId: getIncidentById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Incident found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+        '404':
+          $ref: '#/components/responses/ProblemDetails404'
+
+  /api/v1/incidents/{id}/status:
+    patch:
+      tags:
+        - Incidents
+      summary: Update incident status with optimistic locking version check
+      operationId: updateIncidentStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIncidentStatusRequest'
+      responses:
+        '200':
+          description: Incident status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentResponse'
+        '409':
+          $ref: '#/components/responses/ProblemDetails409'
+
+  /api/v1/incidents/{id}/timeline:
+    get:
+      tags:
+        - Timeline
+      summary: Get chronological timeline entries for an incident
+      operationId: getIncidentTimeline
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Ordered timeline list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IncidentTimelineEntryResponse'
+
+  /api/v1/incidents/{id}/evidence:
+    get:
+      tags:
+        - Evidence
+      summary: Retrieve all correlated evidence and external log/metric references
+      operationId: getIncidentEvidence
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Correlated evidence items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IncidentEvidenceResponse'
+
+components:
+  schemas:
+    IncidentStatus:
+      type: string
+      enum: [DETECTED, INVESTIGATING, MITIGATED, RESOLVED, CLOSED]
+    IncidentSeverity:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+
+    CreateIncidentRequest:
+      type: object
+      required:
+        - title
+        - description
+        - severity
+        - environment
+        - serviceName
+      properties:
+        title:
+          type: string
+          example: 'High 5xx error rate spike in checkout-service'
+        description:
+          type: string
+          example: 'Checkout latency degraded from 85ms to 4200ms; HTTP 504 gateway timeouts observed.'
+        severity:
+          $ref: '#/components/schemas/IncidentSeverity'
+        environment:
+          type: string
+          example: 'production'
+        serviceName:
+          type: string
+          example: 'checkout-service'
+        startedAt:
+          type: string
+          format: date-time
+          example: '2026-09-16T12:00:00Z'
+
+    UpdateIncidentStatusRequest:
+      type: object
+      required:
+        - status
+        - expectedVersion
+      properties:
+        status:
+          $ref: '#/components/schemas/IncidentStatus'
+        reason:
+          type: string
+          example: 'Primary database replica failover completed successfully.'
+        expectedVersion:
+          type: integer
+          format: int64
+          example: 0
+
+    IncidentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        incidentKey:
+          type: string
+          example: 'INC-2026-001'
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/IncidentStatus'
+        severity:
+          $ref: '#/components/schemas/IncidentSeverity'
+        environment:
+          type: string
+        serviceName:
+          type: string
+        detectedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+
+    IncidentPageResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/IncidentResponse'
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        isLast:
+          type: boolean
+
+    IncidentTimelineEntryResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        entryType:
+          type: string
+          example: 'DEPLOYMENT_CORRELATION'
+        summary:
+          type: string
+        description:
+          type: string
+        sourceRef:
+          type: string
+
+    IncidentEvidenceResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          example: 'LOG_SAMPLE'
+        source:
+          type: string
+          example: 'elasticsearch-s3-pointer'
+        timestamp:
+          type: string
+          format: date-time
+        referenceId:
+          type: string
+        summary:
+          type: string
+        rawReference:
+          type: string
+          description: Object storage or log pointer URL; raw logs are never stored in SQL.
+        relevanceScore:
+          type: number
+          format: double
+        confidence:
+          type: number
+          format: double
+
+    ProblemDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          example: 'about:blank'
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        traceId:
+          type: string
+
+  responses:
+    ProblemDetails400:
+      description: Bad Request / Validation Failure
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    ProblemDetails404:
+      description: Resource Not Found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    ProblemDetails409:
+      description: Optimistic Locking Conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
